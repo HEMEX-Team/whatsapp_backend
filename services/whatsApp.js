@@ -13,8 +13,9 @@ const client = new Client({
      	dataPath: path.join(process.cwd(), 'wwebjs_cache')
     }),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        headless: true
+      executablePath: process.env.CHROMIUM_PATH,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless: true
     }
 });
 
@@ -30,6 +31,9 @@ client.on('ready', async() => {
     isClientReady = true;
 });
 
+// COMMENTED OUT FOR NOW AS WE ARE NOT DEPENDING ON DB TO FETCH CHATS
+
+/*
 client.on('message_create', async (message) => {
     try{
       if (!await checkIsPrivateMessage(message)){
@@ -61,6 +65,7 @@ client.on('message_create', async (message) => {
       console.error('Error saving message:', error);
     }
 });
+*/
 
 // Export both client and ready state
 module.exports = { 
