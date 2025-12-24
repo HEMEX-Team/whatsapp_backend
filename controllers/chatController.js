@@ -421,9 +421,119 @@ async function getChatsReport(req, res) {
 
 }
 
+async function getChatsReportExposed(req, res) {
+  try{
+    const { start_date, end_date } = req.query;
+    
+    // Validate presence of both dates
+    if (!start_date || !end_date) {
+      return res.status(400).json({
+        success: false,
+        message: "Both start_date and end_date are required as query parameters.",
+      });
+    }
+
+    const parsedStart = parseDDMMYYYY(start_date);
+    const parsedEnd = parseDDMMYYYY(end_date);
+
+    if (!parsedStart || !parsedEnd) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid date format. Please provide valid start_date and end_date in DD-MM-YYYY format.",
+      });
+    }
+
+    // Get all chats
+    const allChats = await client.getChats();
+
+    // Fetch all available labels from the WhatsApp client
+    const availableLabels = await client.getLabels(); 
+    const labelColumns = availableLabels.map(label => label.name);
+
+    // Prepare CSV header
+    const csvHeader = [
+      'Name',
+      'Phone No.',
+      ...labelColumns,
+      'Last Message Sent',
+      'Last Message Sent Date',
+      'Last Message Received',
+      'Last Message Received Date'
+    ];
+
+    // Prepare CSV rows
+    const csvRows = [csvHeader.join(',')];
+
+    for (const chat of allChats) {
+      if(chat.isGroup) continue; // Skip group chats
+      // Only process chats within the date range
+      const chatTimestamp = new Date(chat.timestamp * 1000); // WhatsApp timestamps are in seconds
+      if (chatTimestamp < parsedStart || chatTimestamp > parsedEnd) continue;
+
+      // Get labels for this chat
+      const labels = await chat.getLabels();
+      const labelPresence = labelColumns.map(col =>
+        labels.some(label => label.name === col) ? '1' : ''
+      );
+
+      // Fetch last sent and received messages
+      const messages = await chat.fetchMessages({ limit: 20 }); // adjust limit as needed
+      let lastSent = null, lastSentDate = '', lastReceived = null, lastReceivedDate = '';
+
+      for (const msg of messages) {
+        const msgDate = new Date(msg.timestamp * 1000);
+        if (msgDate < parsedStart || msgDate > parsedEnd) continue;
+        const msgBody = msg.hasMedia ? 'media' : msg.body;
+        if (msg.fromMe) {
+          if (!lastSent || msgDate > new Date(lastSentDate)) {
+            lastSent = msgBody;
+            lastSentDate = msgDate.toISOString();
+          }
+        } else {
+          if (!lastReceived || msgDate > new Date(lastReceivedDate)) {
+            lastReceived = msgBody;
+            lastReceivedDate = msgDate.toISOString();
+          }
+        }
+      }
+
+      csvRows.push([
+        escapeCsvField(chat.name || 'Unknown'),
+        escapeCsvField("'" + (chat.id.user || 'Unknown')),
+        ...labelPresence,
+        escapeCsvField(lastSent || ''),
+        escapeCsvField(lastSentDate),
+        escapeCsvField(lastReceived || ''),
+        escapeCsvField(lastReceivedDate)
+      ].join(','));
+    }
+
+    // Generate CSV content with BOM for UTF-8
+    const BOM = '\uFEFF';
+    const csvContent = BOM + csvRows.join('\n');
+    const fileName = `report_${start_date}_${end_date}.csv`;
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+    // Stream the CSV file directly
+    return res.send(csvContent);
+
+  } catch (error) {
+    console.error("Error in getChatsReportExposed:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate chat report",
+      error: error.message,
+    });
+  }
+}
+
 module.exports = {
   getChatMessages,
   getChatsByLabels,
   getUnreadChats,
-  getChatsReport
+  getChatsReport,
+  getChatsReportExposed
 };
