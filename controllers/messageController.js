@@ -106,16 +106,16 @@ async function sendMessage(req, res, client) {
     }
 
     // Save outgoing message to DB, including WhatsApp message id
-    await saveMessageService({
-      contactNumber: contactNumber,
-      direction: "outgoing",
-      body: message,
-      media: messageMedia ? messageMedia.data : null,
-      mimeType: messageMedia ? messageMedia.mimetype : null,
-      timestamp: new Date(),
-      ack: 1, // Sent to server
-      waId: sentMessage.id && sentMessage.id.id ? sentMessage.id.id : undefined,
-    });
+    // await saveMessageService({
+    //   contactNumber: contactNumber,
+    //   direction: "outgoing",
+    //   body: message,
+    //   media: messageMedia ? messageMedia.data : null,
+    //   mimeType: messageMedia ? messageMedia.mimetype : null,
+    //   timestamp: new Date(),
+    //   ack: 1, // Sent to server
+    //   waId: sentMessage.id && sentMessage.id.id ? sentMessage.id.id : undefined,
+    // });
 
     if (file) {
       fs.unlink(file.path, (err) => {
@@ -216,16 +216,16 @@ async function sendBulkToLabel(req, res) {
                 }
 
                 // Save outgoing message to DB
-                await saveMessageService({
-                    contactNumber: chat.id.user,
-                    direction: 'outgoing',
-                    body: message,
-                    media: messageMedia ? messageMedia.data : null,
-                    mimeType: messageMedia ? messageMedia.mimetype : null,
-                    timestamp: new Date(),
-                    ack: 1, // Sent to server
-                    waId: sentMessage.id?.id
-                });
+                // await saveMessageService({
+                //     contactNumber: chat.id.user,
+                //     direction: 'outgoing',
+                //     body: message,
+                //     media: messageMedia ? messageMedia.data : null,
+                //     mimeType: messageMedia ? messageMedia.mimetype : null,
+                //     timestamp: new Date(),
+                //     ack: 1, // Sent to server
+                //     waId: sentMessage.id?.id
+                // });
 
                 results.push({
                     chatId: chat.id._serialized,
