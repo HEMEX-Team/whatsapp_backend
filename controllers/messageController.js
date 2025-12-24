@@ -49,19 +49,6 @@ async function sendBulkMessage(req, res, client) {
         console.log("sending message");
         sentMessage = await client.sendMessage(chatId, message);
       }
-      // Save outgoing message to DB, including WhatsApp message id
-      await saveMessageService({
-        contactNumber: contactNumber,
-        direction: "outgoing",
-        body: message,
-        media: messageMedia ? messageMedia.data : null,
-        mimeType: messageMedia ? messageMedia.mimetype : null,
-        timestamp: new Date(),
-        ack: 1, // Sent to server
-        waId:
-          sentMessage.id && sentMessage.id.id ? sentMessage.id.id : undefined,
-      });
-
       // Generate random delay between 1-5 seconds (1000-5000ms)
       const randomDelay = Math.floor(Math.random() * 4000) + 1000;
       await new Promise((resolve) => setTimeout(resolve, randomDelay));
