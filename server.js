@@ -32,7 +32,7 @@ app.use("/auth",authRoutes);
 app.use("/exposed", exposedMessagesRoute);
 
 // ✅ Then register authentication middleware
-app.use(authMiddleware);
+// app.use(authMiddleware);
 
 // ✅ Then register all the routes
 app.use("/messages", messageRoutes);

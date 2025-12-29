@@ -5,6 +5,9 @@ const {
   saveMessage: saveMessageService,
 } = require("../services/whatapp-helper");
 const { client } = require('../services/whatsApp');
+const { sendMessage: sendMessageService } = require('../services/messageSender');
+const whatsappConfig = require('../config/whatsappConfig');
+const { getRateLimitStats } = require('../utils/rateLimiter');
 
 // numbers must be in this format
 // 201061261991
@@ -21,50 +24,93 @@ async function sendBulkMessage(req, res, client) {
   if (phoneNumbersArray.length === 0) {
     return res.status(400).send("Phone numbers must be a non-empty array.");
   }
+
+  // Check batch size limit
+  if (phoneNumbersArray.length > whatsappConfig.batchLimits.maxBatchSize) {
+    return res.status(400).json({
+      success: false,
+      error: `Batch size exceeds maximum limit of ${whatsappConfig.batchLimits.maxBatchSize} messages`,
+      requested: phoneNumbersArray.length,
+      maxAllowed: whatsappConfig.batchLimits.maxBatchSize,
+    });
+  }
+
   if (!message && !file) {
     return res
       .status(400)
       .send("At least one of message or media is required.");
   }
+
   try {
+    // Pre-create MessageMedia if file exists (to avoid reading file multiple times)
     let messageMedia = null;
     if (file) {
       messageMedia = MessageMedia.fromFilePath(file.path);
     }
+
+    const results = [];
+    let successCount = 0;
+    let errorCount = 0;
+
     for (const phoneNumber of phoneNumbersArray) {
-      let contactNumber;
       try {
-        contactNumber = parsePhoneNumber(phoneNumber);
+        const result = await sendMessageService(client, phoneNumber, message, messageMedia, true);
+        
+        if (result.success) {
+          successCount++;
+          results.push({
+            phoneNumber: result.phoneNumber,
+            status: 'success',
+            message: 'Message sent successfully'
+          });
+        } else {
+          errorCount++;
+          results.push({
+            phoneNumber: phoneNumber,
+            status: 'error',
+            message: result.error,
+            rateLimitInfo: result.rateLimitInfo
+          });
+
+          // If rate limit exceeded, stop sending
+          if (result.rateLimitInfo) {
+            console.warn('Rate limit exceeded, stopping bulk send');
+            break;
+          }
+        }
       } catch (err) {
-        continue; // skip invalid numbers
-      }
-      const chatId = contactNumber.replace("+", "") + "@c.us";
-      console.log(chatId);
-      let sentMessage;
-      if (messageMedia) {
-        sentMessage = await client.sendMessage(chatId, messageMedia, {
-          caption: message,
+        errorCount++;
+        console.error(`Error processing ${phoneNumber}:`, err.message);
+        results.push({
+          phoneNumber: phoneNumber,
+          status: 'error',
+          message: err.message
         });
-      } else {
-        console.log("sending message");
-        sentMessage = await client.sendMessage(chatId, message);
       }
-      // Generate random delay between 1-5 seconds (1000-5000ms)
-      const randomDelay = Math.floor(Math.random() * 4000) + 1000;
-      await new Promise((resolve) => setTimeout(resolve, randomDelay));
     }
+
+    // Clean up file if it exists
     if (file) {
       fs.unlink(file.path, (err) => {
         if (err) console.error("Error deleting file:", err.message);
       });
     }
-    return res
-      .status(200)
-      .json({ success: true, message: "Messages sent successfully" });
-    // return res.status(200).send({ success: true, message: 'Messages sent successfully' });
+
+    // Get rate limit stats
+    const rateLimitStats = getRateLimitStats();
+
+    return res.status(200).json({
+      success: true,
+      message: `Messages sent: ${successCount} successful, ${errorCount} failed`,
+      results: results,
+      rateLimitStats: rateLimitStats
+    });
   } catch (error) {
     console.error("Error sending bulk messages:", error.message);
-    return res.status(500).send("Failed to send messages: " + error.message);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to send messages: " + error.message
+    });
   }
 }
 
@@ -73,62 +119,65 @@ async function sendMessage(req, res, client) {
   const file = req.file;
 
   if (!phoneNumber) {
-    return res.status(400).send("Phone number is required.");
+    return res.status(400).json({ success: false, error: "Phone number is required." });
   }
   if (!message && !file) {
     return res
       .status(400)
-      .send("At least one of message or media is required.");
+      .json({ success: false, error: "At least one of message or media is required." });
   }
 
   try {
-    let contactNumber;
-    try {
-      contactNumber = parsePhoneNumber(phoneNumber);
-    } catch (err) {
-      return res.status(400).send("Invalid phone number format.");
-    }
+    const result = await sendMessageService(client, phoneNumber, message, file, false);
 
-    const chatId = contactNumber.replace("+", "") + "@c.us";
-    let messageMedia = null;
+    if (!result.success) {
+      // Handle rate limit errors with appropriate status code
+      if (result.rateLimitInfo) {
+        return res.status(429).json({
+          success: false,
+          error: result.error,
+          rateLimitInfo: result.rateLimitInfo,
+          rateLimitStats: getRateLimitStats()
+        });
+      }
 
-    if (file) {
-      messageMedia = MessageMedia.fromFilePath(file.path);
-    }
-
-    let sentMessage;
-    if (messageMedia) {
-      sentMessage = await client.sendMessage(chatId, messageMedia, {
-        caption: message,
+      // Handle other errors
+      return res.status(400).json({
+        success: false,
+        error: result.error
       });
-    } else {
-      sentMessage = await client.sendMessage(chatId, message);
     }
 
-    // Save outgoing message to DB, including WhatsApp message id
-    // await saveMessageService({
-    //   contactNumber: contactNumber,
-    //   direction: "outgoing",
-    //   body: message,
-    //   media: messageMedia ? messageMedia.data : null,
-    //   mimeType: messageMedia ? messageMedia.mimetype : null,
-    //   timestamp: new Date(),
-    //   ack: 1, // Sent to server
-    //   waId: sentMessage.id && sentMessage.id.id ? sentMessage.id.id : undefined,
-    // });
-
+    // Clean up file if it exists
     if (file) {
       fs.unlink(file.path, (err) => {
         if (err) console.error("Error deleting file:", err.message);
       });
     }
 
-    return res
-      .status(200)
-      .send({ success: true, message: "Message sent successfully" });
+    // Save outgoing message to DB, including WhatsApp message id
+    // await saveMessageService({
+    //   contactNumber: result.phoneNumber,
+    //   direction: "outgoing",
+    //   body: message,
+    //   media: file ? MessageMedia.fromFilePath(file.path).data : null,
+    //   mimeType: file ? MessageMedia.fromFilePath(file.path).mimetype : null,
+    //   timestamp: new Date(),
+    //   ack: 1, // Sent to server
+    //   waId: result.message?.id?.id || undefined,
+    // });
+
+    return res.status(200).json({
+      success: true,
+      message: "Message sent successfully",
+      rateLimitStats: getRateLimitStats()
+    });
   } catch (error) {
     console.error("Error sending message:", error.message);
-    return res.status(500).send("Failed to send message: " + error.message);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to send message: " + error.message
+    });
   }
 }
 
@@ -200,43 +249,58 @@ async function sendBulkToLabel(req, res) {
             return res.status(404).json({ success: false, message: 'No chats found with the specified label' });
         }
 
+        // Check batch size limit
+        if (chatsWithLabel.length > whatsappConfig.batchLimits.maxBatchSize) {
+            return res.status(400).json({
+                success: false,
+                error: `Number of chats (${chatsWithLabel.length}) exceeds maximum batch size limit of ${whatsappConfig.batchLimits.maxBatchSize}`,
+                maxAllowed: whatsappConfig.batchLimits.maxBatchSize,
+            });
+        }
+
+        // Pre-create MessageMedia if file exists (to avoid reading file multiple times)
         let messageMedia = null;
         if (file) {
             messageMedia = MessageMedia.fromFilePath(file.path);
         }
 
         const results = [];
+        let successCount = 0;
+        let errorCount = 0;
+
         for (const chat of chatsWithLabel) {
             try {
-                let sentMessage;
-                if (messageMedia) {
-                    sentMessage = await client.sendMessage(chat.id._serialized, messageMedia, { caption: message });
+                // Extract phone number from chat ID
+                const phoneNumber = chat.id.user || chat.id._serialized.split('@')[0];
+                
+                const result = await sendMessageService(client, phoneNumber, message, messageMedia, true);
+                
+                if (result.success) {
+                    successCount++;
+                    results.push({
+                        chatId: chat.id._serialized,
+                        phoneNumber: result.phoneNumber,
+                        status: 'success',
+                        message: 'Message sent successfully'
+                    });
                 } else {
-                    sentMessage = await client.sendMessage(chat.id._serialized, message);
+                    errorCount++;
+                    results.push({
+                        chatId: chat.id._serialized,
+                        phoneNumber: phoneNumber,
+                        status: 'error',
+                        message: result.error,
+                        rateLimitInfo: result.rateLimitInfo
+                    });
+
+                    // If rate limit exceeded, stop sending
+                    if (result.rateLimitInfo) {
+                        console.warn('Rate limit exceeded, stopping bulk send to label');
+                        break;
+                    }
                 }
-
-                // Save outgoing message to DB
-                // await saveMessageService({
-                //     contactNumber: chat.id.user,
-                //     direction: 'outgoing',
-                //     body: message,
-                //     media: messageMedia ? messageMedia.data : null,
-                //     mimeType: messageMedia ? messageMedia.mimetype : null,
-                //     timestamp: new Date(),
-                //     ack: 1, // Sent to server
-                //     waId: sentMessage.id?.id
-                // });
-
-                results.push({
-                    chatId: chat.id._serialized,
-                    status: 'success',
-                    message: 'Message sent successfully'
-                });
-
-                // Add delay between messages to avoid rate limiting
-                const randomDelay = Math.floor(Math.random() * 4000) + 1000; // 1-5 seconds
-                await new Promise(resolve => setTimeout(resolve, randomDelay));
             } catch (error) {
+                errorCount++;
                 console.error(`Error sending message to ${chat.id._serialized}:`, error.message);
                 results.push({
                     chatId: chat.id._serialized,
@@ -253,13 +317,14 @@ async function sendBulkToLabel(req, res) {
             });
         }
 
-        const successCount = results.filter(r => r.status === 'success').length;
-        const errorCount = results.length - successCount;
+        // Get rate limit stats
+        const rateLimitStats = getRateLimitStats();
 
         return res.status(200).json({
             success: true,
             message: `Messages sent to ${successCount} chats, ${errorCount} failed`,
-            results
+            results,
+            rateLimitStats
         });
     } catch (error) {
         console.error('Error in sendBulkToLabel:', error);
