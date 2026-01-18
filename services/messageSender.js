@@ -133,24 +133,72 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
         await new Promise(resolve => setTimeout(resolve, backoffDelay));
       }
 
-      // Send message
-      let sentMessage;
-      if (content instanceof MessageMedia) {
-        sentMessage = await client.sendMessage(chatId, content, options);
-      } else {
-        sentMessage = await client.sendMessage(chatId, content);
+      // Send message with better error handling
+      let sentMessage = null;
+      let sendError = null;
+      
+      try {
+        if (content instanceof MessageMedia) {
+          sentMessage = await client.sendMessage(chatId, content, options);
+        } else {
+          sentMessage = await client.sendMessage(chatId, content);
+        }
+
+        // Validate sent message
+        if (!sentMessage) {
+          throw new Error('Message sent but no message object returned');
+        }
+
+        // Record successful send
+        recordMessageSent(phoneNumber);
+
+        return {
+          success: true,
+          message: sentMessage,
+        };
+      } catch (err) {
+        sendError = err;
+        const errorMessage = err.message || err.toString();
+        
+        // Handle "markedUnread" and similar internal errors that might occur after message is sent
+        // These are often post-processing errors that don't affect message delivery
+        if ((errorMessage.includes('markedUnread') || 
+             errorMessage.includes('Cannot read properties of undefined')) &&
+            sentMessage && sentMessage.id) {
+          // Message was sent successfully, just post-processing failed
+          console.warn(`[${phoneNumber}] Warning: Post-processing error (message likely sent): ${errorMessage}`);
+          recordMessageSent(phoneNumber);
+          return {
+            success: true,
+            message: sentMessage,
+            warning: 'Message sent but encountered a post-processing warning'
+          };
+        }
+        
+        // If we have a sentMessage with an id, the message was likely sent despite the error
+        // This can happen with WhatsApp Web.js where the message is sent but internal state update fails
+        if (sentMessage && sentMessage.id && errorMessage.includes('markedUnread')) {
+          console.warn(`[${phoneNumber}] Post-processing error detected but message has ID - treating as success: ${errorMessage}`);
+          recordMessageSent(phoneNumber);
+          return {
+            success: true,
+            message: sentMessage,
+            warning: 'Message sent successfully (minor post-processing warning ignored)'
+          };
+        }
+        
+        // For other errors or if no message was returned, treat as failure
+        throw sendError;
       }
-
-      // Record successful send
-      recordMessageSent(phoneNumber);
-
-      return {
-        success: true,
-        message: sentMessage,
-      };
     } catch (error) {
       lastError = error;
-      console.error(`Error sending message (attempt ${retryCount + 1}):`, error.message);
+      const errorMessage = error.message || error.toString();
+      console.error(`[${phoneNumber || chatId}] Error sending message (attempt ${retryCount + 1}):`, errorMessage);
+      
+      // Log full error for debugging (but don't log stack for markedUnread errors as they're verbose)
+      if (error.stack && !errorMessage.includes('markedUnread')) {
+        console.error(`Error stack:`, error.stack);
+      }
 
       // If it's a rate limit error, use exponential backoff
       if (isRateLimitError(error)) {
@@ -218,6 +266,15 @@ async function sendMessage(client, phoneNumber, message, fileOrMedia = null, isB
     }
 
     const chatId = contactNumber.replace('+', '') + '@c.us';
+
+    // Ensure chat exists before sending (prevents markedUnread errors)
+    // This helps initialize the chat object properly
+    try {
+      await client.getChatById(chatId);
+    } catch (chatError) {
+      // If chat doesn't exist, WhatsApp Web.js will create it automatically when sending
+      // This is fine, we can proceed with sending
+    }
 
     // Prepare message content
     // If fileOrMedia is already a MessageMedia instance, use it directly

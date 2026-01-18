@@ -1,0 +1,647 @@
+{
+	"info": {
+		"_postman_id": "whatsapp-backend-api",
+		"name": "WhatsApp Backend API",
+		"description": "Complete API documentation for WhatsApp Backend with multi-client support",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						},
+						"description": "Authenticate user and receive JWT token"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Clients",
+			"item": [
+				{
+					"name": "Register Client",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phoneNumber\": \"201061261991\",\n  \"name\": \"Main Client\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/clients",
+							"host": ["{{baseUrl}}"],
+							"path": ["clients"]
+						},
+						"description": "Register a new WhatsApp client. Returns QR code if client needs authentication."
+					},
+					"response": []
+				},
+				{
+					"name": "List All Clients",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/clients",
+							"host": ["{{baseUrl}}"],
+							"path": ["clients"]
+						},
+						"description": "Get list of all registered WhatsApp clients with their status"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Client Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/clients/:phoneNumber",
+							"host": ["{{baseUrl}}"],
+							"path": ["clients", ":phoneNumber"],
+							"variable": [
+								{
+									"key": "phoneNumber",
+									"value": "201061261991",
+									"description": "Phone number of the client (digits only, no + or spaces)"
+								}
+							]
+						},
+						"description": "Get status information for a specific client"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Client QR Code",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/clients/:phoneNumber/qr",
+							"host": ["{{baseUrl}}"],
+							"path": ["clients", ":phoneNumber", "qr"],
+							"variable": [
+								{
+									"key": "phoneNumber",
+									"value": "201061261991",
+									"description": "Phone number of the client"
+								}
+							]
+						},
+						"description": "Get QR code for client initialization/authentication"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Client",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/clients/:phoneNumber",
+							"host": ["{{baseUrl}}"],
+							"path": ["clients", ":phoneNumber"],
+							"variable": [
+								{
+									"key": "phoneNumber",
+									"value": "201061261991",
+									"description": "Phone number of the client to delete"
+								}
+							]
+						},
+						"description": "Remove a WhatsApp client"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Messages",
+			"item": [
+				{
+					"name": "Save Message",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phoneNumber\": \"201061261991\",\n  \"message\": \"Hello\",\n  \"media\": null,\n  \"mimeType\": null,\n  \"messageTimestamp\": \"2024-01-01T00:00:00.000Z\",\n  \"direction\": \"incoming\",\n  \"ack\": 1\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/messages/save-message",
+							"host": ["{{baseUrl}}"],
+							"path": ["messages", "save-message"]
+						},
+						"description": "Save a message to the database (does not require X-Client-Id)"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Message",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phoneNumber",
+									"value": "201061261991",
+									"type": "text",
+									"description": "Recipient phone number (format: 201061261991)"
+								},
+								{
+									"key": "message",
+									"value": "Hello, this is a test message",
+									"type": "text",
+									"description": "Message text (optional if file is provided)"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"description": "Optional media file (image, video, document, etc.)"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/messages/send-message",
+							"host": ["{{baseUrl}}"],
+							"path": ["messages", "send-message"]
+						},
+						"description": "Send a single WhatsApp message. Requires X-Client-Id header."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Bulk Message",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phoneNumbers",
+									"value": "201061261991,201061261992,201061261993",
+									"type": "text",
+									"description": "Comma-separated list of phone numbers"
+								},
+								{
+									"key": "message",
+									"value": "Bulk message to all recipients",
+									"type": "text",
+									"description": "Message text (optional if file is provided)"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"description": "Optional media file"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/messages/send-bulk-message",
+							"host": ["{{baseUrl}}"],
+							"path": ["messages", "send-bulk-message"]
+						},
+						"description": "Send bulk messages to multiple recipients. Messages are sent with delays to prevent spam detection."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Bulk to Label",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "labelId",
+									"value": "38",
+									"type": "text",
+									"description": "Label ID to filter chats"
+								},
+								{
+									"key": "message",
+									"value": "Message to all chats with this label",
+									"type": "text",
+									"description": "Message text (optional if file is provided)"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"description": "Optional media file"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/messages/send-bulk-to-label",
+							"host": ["{{baseUrl}}"],
+							"path": ["messages", "send-bulk-to-label"]
+						},
+						"description": "Send messages to all chats with a specific label"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Chats",
+			"item": [
+				{
+					"name": "Get Chat Messages",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"contactNumber\": \"201061261991\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/chats/messages?limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["chats", "messages"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Number of messages to fetch"
+								}
+							]
+						},
+						"description": "Get messages from a specific chat with pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Chats by Labels",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/chats/by-labels?labels=38,39&page=1&limit=20&search=",
+							"host": ["{{baseUrl}}"],
+							"path": ["chats", "by-labels"],
+							"query": [
+								{
+									"key": "labels",
+									"value": "38,39",
+									"description": "Comma-separated list of label IDs (optional)"
+								},
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number for pagination (optional)"
+								},
+								{
+									"key": "limit",
+									"value": "20",
+									"description": "Number of chats per page (optional)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search query to filter chats (optional)"
+								}
+							]
+						},
+						"description": "Get chats filtered by labels with optional pagination and search"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Unread Chats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/chats/unread",
+							"host": ["{{baseUrl}}"],
+							"path": ["chats", "unread"]
+						},
+						"description": "Get all chats with unread messages"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Chats Report",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start_date\": \"01-01-2024\",\n  \"end_date\": \"31-01-2024\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/chats/report",
+							"host": ["{{baseUrl}}"],
+							"path": ["chats", "report"]
+						},
+						"description": "Generate a CSV report of chats within the specified date range. Date format: DD-MM-YYYY"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Labels",
+			"item": [
+				{
+					"name": "Get All Labels",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/labels",
+							"host": ["{{baseUrl}}"],
+							"path": ["labels"]
+						},
+						"description": "Get all available labels"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Label by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/labels/:labelId",
+							"host": ["{{baseUrl}}"],
+							"path": ["labels", ":labelId"],
+							"variable": [
+								{
+									"key": "labelId",
+									"value": "38",
+									"description": "Label ID"
+								}
+							]
+						},
+						"description": "Get a specific label by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Chat Labels",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"chatId\": \"201088899963@c.us\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/labels/chat",
+							"host": ["{{baseUrl}}"],
+							"path": ["labels", "chat"]
+						},
+						"description": "Get labels for a specific chat. ChatId format: phoneNumber@c.us"
+					},
+					"response": []
+				},
+				{
+					"name": "Replace Chat Labels",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"chatIds\": [\"201088899963@c.us\"],\n  \"labelIds\": [\"38\", \"39\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/labels/replace-labels",
+							"host": ["{{baseUrl}}"],
+							"path": ["labels", "replace-labels"]
+						},
+						"description": "Replace labels for one or more chats. If labelIds is empty, all labels are removed."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Exposed",
+			"item": [
+				{
+					"name": "Send Message (Exposed)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "phoneNumber",
+									"value": "201061261991",
+									"type": "text",
+									"description": "Recipient phone number"
+								},
+								{
+									"key": "message",
+									"value": "Test message",
+									"type": "text",
+									"description": "Message text (optional if file is provided)"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"description": "Optional media file"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/exposed/send-message",
+							"host": ["{{baseUrl}}"],
+							"path": ["exposed", "send-message"]
+						},
+						"description": "Public endpoint to send messages (exposed route)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Report (Exposed)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Client-Id",
+								"value": "{{clientPhoneNumber}}",
+								"description": "Phone number of the WhatsApp client to use"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/exposed/report?start_date=01-01-2024&end_date=31-01-2024",
+							"host": ["{{baseUrl}}"],
+							"path": ["exposed", "report"],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "01-01-2024",
+									"description": "Start date in DD-MM-YYYY format"
+								},
+								{
+									"key": "end_date",
+									"value": "31-01-2024",
+									"description": "End date in DD-MM-YYYY format"
+								}
+							]
+						},
+						"description": "Public endpoint to generate and download chat report as CSV. Date format: DD-MM-YYYY"
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "clientPhoneNumber",
+			"value": "201061261991",
+			"type": "string",
+			"description": "Default WhatsApp client phone number for X-Client-Id header"
+		}
+	]
+}

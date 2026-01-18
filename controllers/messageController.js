@@ -4,14 +4,14 @@ const fs = require("fs");
 const {
   saveMessage: saveMessageService,
 } = require("../services/whatapp-helper");
-const { client } = require('../services/whatsApp');
 const { sendMessage: sendMessageService } = require('../services/messageSender');
 const whatsappConfig = require('../config/whatsappConfig');
 const { getRateLimitStats } = require('../utils/rateLimiter');
 
 // numbers must be in this format
 // 201061261991
-async function sendBulkMessage(req, res, client) {
+async function sendBulkMessage(req, res) {
+  const client = req.client;
   const { phoneNumbers, message } = req.body;
 
   const file = req.file;
@@ -60,8 +60,9 @@ async function sendBulkMessage(req, res, client) {
           successCount++;
           results.push({
             phoneNumber: result.phoneNumber,
-            status: 'success',
-            message: 'Message sent successfully'
+            status: result.warning ? 'warning' : 'success',
+            message: result.warning || 'Message sent successfully',
+            warning: result.warning || undefined
           });
         } else {
           errorCount++;
@@ -114,7 +115,8 @@ async function sendBulkMessage(req, res, client) {
   }
 }
 
-async function sendMessage(req, res, client) {
+async function sendMessage(req, res) {
+  const client = req.client;
   const { phoneNumber, message } = req.body;
   const file = req.file;
 
@@ -233,6 +235,9 @@ async function sendBulkToLabel(req, res) {
     }
 
     try {
+        // Get client from request (set by middleware)
+        const client = req.client;
+        
         // Get all chats with the specified label
         const chats = await client.getChats();
         const chatsWithLabel = [];
@@ -280,8 +285,9 @@ async function sendBulkToLabel(req, res) {
                     results.push({
                         chatId: chat.id._serialized,
                         phoneNumber: result.phoneNumber,
-                        status: 'success',
-                        message: 'Message sent successfully'
+                        status: result.warning ? 'warning' : 'success',
+                        message: result.warning || 'Message sent successfully',
+                        warning: result.warning || undefined
                     });
                 } else {
                     errorCount++;

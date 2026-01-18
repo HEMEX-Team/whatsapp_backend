@@ -1,9 +1,9 @@
-const { client } = require('../services/whatsApp');
 const Chat = require('../models/Chat');
 
 // Get all available labels
 async function getLabels(req, res) {
   try {
+    const client = req.client;
     const labels = await client.getLabels();
     res.json({ labels });
   } catch (error) {
@@ -13,6 +13,7 @@ async function getLabels(req, res) {
 
 async function getLabelById(req, res) {
   try {
+    const client = req.client;
     const { labelId } = req.params;
     if (!labelId) {
       return res.status(400).json({ message: 'Label ID is required' });
@@ -28,6 +29,7 @@ async function getLabelById(req, res) {
 // chatId format : 201088899963@c.us
 async function getChatLabels(req, res) {
   try {
+    const client = req.client;
     const { chatId } = req.body;
     
     if (!chatId) {
@@ -38,10 +40,7 @@ async function getChatLabels(req, res) {
     }
 
     try {
-      // Check if client is ready
-      if (!client.pupPage || client.pupPage.isClosed()) {
-        throw new Error('WhatsApp client is not ready or disconnected');
-      }
+      // Client ready check is handled by middleware
       
       const labels = await client.getChatLabels(chatId);
       res.json({ 
@@ -51,25 +50,8 @@ async function getChatLabels(req, res) {
     } catch (error) {
       console.error('Error in getChatLabels:', error);
       
-      // Check for specific error types
-      if (error.message.includes('Execution context was destroyed') ||
-          error.message.includes('Navigation failed') ||
-          error.message.includes('Protocol error')) {
-        // Attempt to reinitialize the client or handle reconnection
-        try {
-          await client.initialize();
-          // Retry the operation
-          const labels = await client.getChatLabels(chatId);
-          return res.json({ 
-            success: true,
-            labels,
-            recovered: true
-          });
-        } catch (retryError) {
-          console.error('Recovery attempt failed:', retryError);
-          throw new Error('Failed to recover from navigation error');
-        }
-      }
+      // Note: Client reinitialization should be handled by client manager
+      // This is a connection error that may require client restart
       
       throw error; // Re-throw if not a navigation error
     }
@@ -87,6 +69,7 @@ async function getChatLabels(req, res) {
 async function replaceChatLabels(req, res) {
 
   try {
+    const client = req.client;
     const { chatIds = [], labelIds = [] } = req.body;
     
     if (!Array.isArray(chatIds) || chatIds.length === 0) {

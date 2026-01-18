@@ -1,6 +1,6 @@
 const Chat = require("../models/Chat");
 const { parsePhoneNumber, getChatId } = require("../utils/phoneUtils");
-const { client, isReady } = require("../services/whatsApp");
+const { isClientReady } = require("../services/clientManager");
 const {parseDDMMYYYY} = require('../utils/dateParser');
 const path = require('path');
 const fs = require('fs');
@@ -10,6 +10,7 @@ const { escapeCsvField } = require("../utils/csvInput");
 // Ex. { contactNumber: "201061261991" }
 async function getChatMessages(req, res) {
   try {
+    const client = req.client;
     const { limit = 10 } = req.query;
     const { contactNumber } = req.body;
 
@@ -20,16 +21,7 @@ async function getChatMessages(req, res) {
       });
     }
 
-    // Wait for client to be ready
-    if (!isReady()) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isInitialized: false,
-      });
-    }
-
+    // Client ready check is handled by middleware
     try {
       const chatId = getChatId(contactNumber);
 
@@ -82,6 +74,7 @@ async function getChatMessages(req, res) {
 // Get chats by labels using WhatsApp API
 async function getChatsByLabels(req, res) {
   try {
+    const client = req.client;
     let { page, limit, labels, search } = req.query;
 
     // Convert labels to array if needed
@@ -91,22 +84,7 @@ async function getChatsByLabels(req, res) {
       ? labels.split(",").filter(Boolean)
       : [];
 
-    if (!client) {
-      return res.status(500).json({
-        success: false,
-        message: "WhatsApp client not initialized",
-      });
-    }
-
-    // Wait for client to be ready
-    if (!isReady()) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isInitialized: false,
-      });
-    }
+    // Client ready check is handled by middleware
 
     try {
       let chats = [];
@@ -233,15 +211,10 @@ async function getChatsByLabels(req, res) {
  */
 async function getUnreadChats(req, res) {
   try {
-    // Wait for client to be ready
-    if (!isReady()) {
-      return res.status(503).json({
-        success: false,
-        message: "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isInitialized: false,
-      });
-    }
-
+    const client = req.client;
+    
+    // Client ready check is handled by middleware
+    
     // Get all chats
     const allChats = await client.getChats();
     
@@ -305,6 +278,7 @@ async function getUnreadChats(req, res) {
 
 async function getChatsReport(req, res) {
   try{
+    const client = req.client;
     const { start_date, end_date } = req.body;
     
     // Validate presence of both dates
@@ -423,6 +397,7 @@ async function getChatsReport(req, res) {
 
 async function getChatsReportExposed(req, res) {
   try{
+    const client = req.client;
     const { start_date, end_date } = req.query;
     
     // Validate presence of both dates
