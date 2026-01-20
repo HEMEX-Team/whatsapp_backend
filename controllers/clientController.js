@@ -191,7 +191,9 @@ async function getClientQR(req, res) {
     }
 
     const normalizedPhone = phoneNumber.replace(/[+\s]/g, '');
-    const clientDoc = await ClientModel.findOne({ phoneNumber: normalizedPhone });
+    
+    // Check if client exists in database
+    let clientDoc = await ClientModel.findOne({ phoneNumber: normalizedPhone });
 
     if (!clientDoc) {
       return res.status(404).json({
@@ -200,48 +202,137 @@ async function getClientQR(req, res) {
       });
     }
 
-    // If no QR code, try to initialize client
-    if (!clientDoc.qrCode) {
-      try {
-        await initializeClient(normalizedPhone);
-        // Wait a bit for QR code generation
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // Re-fetch from database
-        const updatedDoc = await ClientModel.findOne({ phoneNumber: normalizedPhone });
-        if (updatedDoc && updatedDoc.qrCode) {
+    // Check if client is already authenticated and ready
+    const clientIsReady = isClientReady(normalizedPhone);
+    const clientStatus = await getClientStatus(normalizedPhone);
+    
+    if (clientIsReady || (clientStatus && clientStatus.status === 'active')) {
+      // Client is already authenticated, no QR code needed
+      return res.status(200).json({
+        success: true,
+        message: 'Client is already authenticated and ready. No QR code needed.',
+        status: 'active',
+        isAuthenticated: true,
+        phoneNumber: normalizedPhone
+      });
+    }
+
+    // Client is not authenticated, we need a QR code
+    // For inactive clients, we need to clear old QR code and force fresh generation
+    let qrCode = null;
+    let qrCodeImage = null;
+
+    try {
+      // Check if client is inactive or initializing but not ready - if so, we need to force fresh QR code generation
+      // This ensures we don't return expired QR codes
+      const needsFreshQR = !clientIsReady && (
+        clientDoc.status === 'inactive' || 
+        clientDoc.status === 'initializing' ||
+        (clientStatus && (clientStatus.status === 'inactive' || clientStatus.status === 'initializing'))
+      );
+      
+      if (needsFreshQR) {
+        console.log(`[getClientQR] Client ${normalizedPhone} is inactive, clearing old QR code and forcing re-initialization`);
+        
+        // Clear old QR code from database
+        try {
+          await ClientModel.findOneAndUpdate(
+            { phoneNumber: normalizedPhone },
+            { 
+              qrCode: null,
+              status: 'initializing',
+              updatedAt: new Date()
+            }
+          );
+        } catch (dbError) {
+          console.warn(`[getClientQR] Error clearing old QR code:`, dbError.message);
+        }
+        
+        // Remove existing inactive client instance to force fresh initialization
+        try {
+          await removeClient(normalizedPhone);
+          console.log(`[getClientQR] Removed inactive client instance for ${normalizedPhone}`);
+        } catch (removeError) {
+          console.warn(`[getClientQR] Error removing inactive client (may not exist):`, removeError.message);
+        }
+        
+        // Wait a moment for cleanup
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Initialize client (will create new instance if removed, or use existing if active)
+      console.log(`[getClientQR] Initializing client ${normalizedPhone} to generate QR code`);
+      await initializeClient(normalizedPhone);
+      
+      // Wait for QR code to be generated (with timeout)
+      const maxWaitTime = 15000; // 15 seconds for fresh QR code generation
+      const pollInterval = 500; // 500ms
+      let waited = 0;
+      
+      while (waited < maxWaitTime) {
+        // Check database for new QR code
+        clientDoc = await ClientModel.findOne({ phoneNumber: normalizedPhone });
+        if (clientDoc && clientDoc.qrCode) {
+          qrCode = clientDoc.qrCode;
+          console.log(`[getClientQR] Found fresh QR code for ${normalizedPhone}`);
+          break;
+        }
+        
+        // Check in-memory client data
+        try {
+          const clientData = await getClient(normalizedPhone);
+          if (clientData && clientData.qrCode) {
+            qrCode = clientData.qrCode;
+            console.log(`[getClientQR] Found fresh QR code in memory for ${normalizedPhone}`);
+            break;
+          }
+        } catch (err) {
+          // Continue polling if getClient fails
+          console.warn(`[getClientQR] Error checking client:`, err.message);
+        }
+        
+        // Wait before next check
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        waited += pollInterval;
+      }
+      
+      if (!qrCode) {
+        console.warn(`[getClientQR] No QR code generated after ${maxWaitTime}ms for ${normalizedPhone}`);
+      }
+      
+      if (qrCode) {
           // Convert QR code to image
-          const qrCodeImage = await convertQRCodeToImage(updatedDoc.qrCode);
+        qrCodeImage = await convertQRCodeToImage(qrCode);
           
           return res.status(200).json({
             success: true,
-            qrCode: updatedDoc.qrCode,
+          qrCode: qrCode,
             qrCodeImage: qrCodeImage,
             phoneNumber: normalizedPhone,
-            status: 'initializing'
+          status: 'initializing',
+          isAuthenticated: false,
+          message: 'Scan this QR code with WhatsApp on your phone to authenticate.'
+        });
+      } else {
+        // QR code generation might be in progress, but we don't have it yet
+        return res.status(200).json({
+          success: true,
+          message: 'QR code is being generated. Please wait a moment and try again.',
+          phoneNumber: normalizedPhone,
+          status: 'initializing',
+          isAuthenticated: false,
+          qrCode: null,
+          qrCodeImage: null
           });
         }
       } catch (error) {
         console.error('[getClientQR] Error initializing client:', error);
-      }
-    }
-
-    if (!clientDoc.qrCode) {
-      return res.status(404).json({
+      return res.status(500).json({
         success: false,
-        error: 'QR code not available. Client may already be authenticated.'
+        error: 'Failed to initialize client and generate QR code',
+        message: error.message
       });
     }
-
-    // Convert QR code to image
-    const qrCodeImage = await convertQRCodeToImage(clientDoc.qrCode);
-
-    return res.status(200).json({
-      success: true,
-      qrCode: clientDoc.qrCode,
-      qrCodeImage: qrCodeImage,
-      phoneNumber: normalizedPhone,
-      status: clientDoc.status
-    });
   } catch (error) {
     console.error('[getClientQR] Error:', error);
     return res.status(500).json({
