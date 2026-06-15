@@ -1,4 +1,4 @@
-const { client } = require('../services/whatsApp');
+const { client, isReady } = require('../services/whatsApp');
 const Chat = require('../models/Chat');
 
 // Get all available labels
@@ -39,7 +39,7 @@ async function getChatLabels(req, res) {
 
     try {
       // Check if client is ready
-      if (!client.pupPage || client.pupPage.isClosed()) {
+      if (!isReady()) {
         throw new Error('WhatsApp client is not ready or disconnected');
       }
       

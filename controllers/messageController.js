@@ -5,7 +5,7 @@ const {
   saveMessage: saveMessageService,
 } = require("../services/whatapp-helper");
 const { client } = require('../services/whatsApp');
-const { sendMessage: sendMessageService } = require('../services/messageSender');
+const { sendMessage: sendMessageService, sendMessageToChat } = require('../services/messageSender');
 const whatsappConfig = require('../config/whatsappConfig');
 const { getRateLimitStats } = require('../utils/rateLimiter');
 
@@ -270,24 +270,24 @@ async function sendBulkToLabel(req, res) {
 
         for (const chat of chatsWithLabel) {
             try {
-                // Extract phone number from chat ID
-                const phoneNumber = chat.id.user || chat.id._serialized.split('@')[0];
-                
-                const result = await sendMessageService(client, phoneNumber, message, messageMedia, true);
-                
+                const chatId = chat.id._serialized;
+                const displayId = chat.id.user || chatId.split('@')[0];
+
+                const result = await sendMessageToChat(client, chatId, message, messageMedia, true, chatId);
+
                 if (result.success) {
                     successCount++;
                     results.push({
-                        chatId: chat.id._serialized,
-                        phoneNumber: result.phoneNumber,
+                        chatId,
+                        phoneNumber: displayId,
                         status: 'success',
                         message: 'Message sent successfully'
                     });
                 } else {
                     errorCount++;
                     results.push({
-                        chatId: chat.id._serialized,
-                        phoneNumber: phoneNumber,
+                        chatId,
+                        phoneNumber: displayId,
                         status: 'error',
                         message: result.error,
                         rateLimitInfo: result.rateLimitInfo

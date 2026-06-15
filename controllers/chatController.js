@@ -26,7 +26,7 @@ async function getChatMessages(req, res) {
         success: false,
         message:
           "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isInitialized: false,
+        isReady: false,
       });
     }
 
@@ -104,7 +104,7 @@ async function getChatsByLabels(req, res) {
         success: false,
         message:
           "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isInitialized: false,
+        isReady: false,
       });
     }
 
@@ -238,7 +238,7 @@ async function getUnreadChats(req, res) {
       return res.status(503).json({
         success: false,
         message: "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isInitialized: false,
+        isReady: false,
       });
     }
 
