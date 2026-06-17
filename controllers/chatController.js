@@ -1,6 +1,7 @@
 const Chat = require("../models/Chat");
 const { parsePhoneNumber, getChatId } = require("../utils/phoneUtils");
-const { isClientReady } = require("../services/clientManager");
+const { isClientReady, clearOperationalReady } = require("../services/clientManager");
+const { debugLog } = require("../utils/debugLog");
 const {parseDDMMYYYY} = require('../utils/dateParser');
 const path = require('path');
 const fs = require('fs');
@@ -185,6 +186,12 @@ async function getChatsByLabels(req, res) {
       }
 
       // Return all chats if pagination is not requested
+      // #region agent log
+      debugLog('chatController.js:getChatsByLabels', 'getChats succeeded', {
+        deviceId: req.clientDeviceId,
+        chatCount: finalChats.length
+      }, 'H11');
+      // #endregion
       res.json({
         success: true,
         chats: finalChats,
@@ -192,7 +199,26 @@ async function getChatsByLabels(req, res) {
       });
     } catch (error) {
       console.error("Error in getChatsByLabels:", error);
-      throw error; // Will be caught by the outer catch block
+      if (req.clientDeviceId) {
+        clearOperationalReady(req.clientDeviceId);
+      }
+      // #region agent log
+      debugLog('chatController.js:getChatsByLabels', 'getChats failed, cleared ready', {
+        deviceId: req.clientDeviceId,
+        error: error?.message || String(error)
+      }, 'H11');
+      // #endregion
+      const retryable =
+        /getChats|getChatModel|not ready|undefined/i.test(error?.message || '');
+      if (retryable) {
+        return res.status(503).json({
+          success: false,
+          error: 'WhatsApp client is not ready yet. Please wait for the client to initialize.',
+          clientId: req.clientDeviceId,
+          status: 'initializing'
+        });
+      }
+      throw error;
     }
   } catch (error) {
     console.error("Error in getChatsByLabels:", error);

@@ -1,64 +1,94 @@
-const { getClient, isClientReady } = require('../services/clientManager');
+const { getClient, isClientReady, findClientDoc } = require('../services/clientManager');
+const { debugLog } = require('../utils/debugLog');
 
-/**
- * Middleware to extract client ID from X-Client-Id header and attach client to request
- * The client ID should be a phone number
- */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function clientSelector(req, res, next) {
   try {
-    // Extract client ID from header
     const clientId = req.headers['x-client-id'] || req.headers['X-Client-Id'];
-    
+
     if (!clientId) {
       return res.status(400).json({
         success: false,
-        error: 'X-Client-Id header is required. Please provide the phone number of the WhatsApp client.'
+        error: 'X-Client-Id header is required. Please provide the device ID or phone number of the WhatsApp client.'
       });
     }
 
-    // Normalize phone number (remove + and spaces)
-    const phoneNumber = clientId.trim().replace(/[+\s]/g, '');
-    
-    // Basic validation: phone number should be numeric (allowing + at start)
-    if (!/^\d+$/.test(phoneNumber) || phoneNumber.length < 10) {
+    const trimmed = String(clientId).trim();
+    const isDeviceId = UUID_REGEX.test(trimmed);
+    const normalizedPhone = trimmed.replace(/[+\s]/g, '');
+    const isPhone = /^\d+$/.test(normalizedPhone) && normalizedPhone.length >= 10;
+
+    if (!isDeviceId && !isPhone) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid phone number format. X-Client-Id must be a valid phone number (digits only, minimum 10 digits).'
+        error: 'Invalid X-Client-Id format. Must be a device UUID or a valid phone number (digits only, minimum 10 digits).'
       });
     }
 
-    // Get or create the client
+    const clientDoc = await findClientDoc(trimmed);
+    if (!clientDoc) {
+      return res.status(404).json({
+        success: false,
+        error: 'Client not found'
+      });
+    }
+
     let clientData;
     try {
-      clientData = await getClient(phoneNumber);
+      clientData = await getClient(clientDoc.deviceId);
     } catch (error) {
-      console.error(`[ClientSelector] Error getting client ${phoneNumber}:`, error);
+      console.error(`[ClientSelector] Error getting client ${clientDoc.deviceId}:`, error);
       return res.status(500).json({
         success: false,
         error: `Failed to initialize client: ${error.message}`
       });
     }
 
-    if (!clientData || !clientData.client) {
+    if (!clientData?.client) {
       return res.status(500).json({
         success: false,
         error: 'Failed to get client instance'
       });
     }
 
-    // Check if client is ready
-    if (!isClientReady(phoneNumber)) {
+    const ready = await isClientReady(clientDoc.deviceId);
+    // #region agent log
+    debugLog('clientSelector.js:readyCheck', 'selector readiness evaluated', {
+      clientId: trimmed,
+      resolvedDeviceId: clientDoc.deviceId,
+      ready,
+      hasPhone: !!(clientData.phoneNumber || clientDoc.phoneNumber)
+    }, 'H6');
+    // #endregion
+
+    if (!ready) {
+      // #region agent log
+      debugLog('clientSelector.js:notReady', 'selector blocked request', {
+        clientId: trimmed,
+        resolvedDeviceId: clientDoc.deviceId,
+        path: req.path,
+        method: req.method
+      }, 'H6');
+      // #endregion
       return res.status(503).json({
         success: false,
         error: 'WhatsApp client is not ready yet. Please wait for the client to initialize and scan the QR code.',
-        clientId: phoneNumber,
+        clientId: clientDoc.deviceId,
         status: 'initializing'
       });
     }
 
-    // Attach client and phone number to request object
     req.client = clientData.client;
-    req.clientPhoneNumber = phoneNumber;
+    req.clientDeviceId = clientDoc.deviceId;
+    req.clientPhoneNumber = clientData.phoneNumber || clientDoc.phoneNumber;
+    // #region agent log
+    debugLog('clientSelector.js:passed', 'selector passed request', {
+      resolvedDeviceId: req.clientDeviceId,
+      path: req.path,
+      method: req.method
+    }, 'H6');
+    // #endregion
 
     next();
   } catch (error) {

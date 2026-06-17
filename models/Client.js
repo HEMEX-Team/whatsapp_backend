@@ -1,13 +1,27 @@
 const mongoose = require('mongoose');
 
 const clientSchema = new mongoose.Schema({
-  phoneNumber: {
+  deviceId: {
     type: String,
     required: true,
     unique: true,
     trim: true
   },
+  phoneNumber: {
+    type: String,
+    sparse: true,
+    unique: true,
+    trim: true
+  },
   name: {
+    type: String,
+    trim: true
+  },
+  needsName: {
+    type: Boolean,
+    default: false
+  },
+  pairingError: {
     type: String,
     trim: true
   },
@@ -32,7 +46,6 @@ const clientSchema = new mongoose.Schema({
   }
 });
 
-// Update the updatedAt field before saving
 clientSchema.pre('save', function(next) {
   this.updatedAt = new Date();
   next();

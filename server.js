@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { initializeDBConnection } = require("./config/db");
-const { getAllClients } = require("./services/clientManager");
+const { getAllClients, migrateExistingClients } = require("./services/clientManager");
 const authMiddleware = require("./middlewares/auth");
 const messageRoutes = require("./routes/messageRoutes");
 const exposedMessagesRoute = require("./routes/exposedMessagesRoute");
@@ -69,6 +69,7 @@ app.use("/clients", clientRoutes);
   try {
     await initializeDBConnection();
     console.log("DB initialized");
+    await migrateExistingClients();
     
     // Optionally auto-initialize clients from database
     // Clients are initialized on-demand when accessed via API
