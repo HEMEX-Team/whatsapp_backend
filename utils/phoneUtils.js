@@ -48,4 +48,99 @@ function resolveWhatsAppChatId(input) {
   return getChatId(raw);
 }
 
-module.exports = { parsePhoneNumber, getChatId, resolveWhatsAppChatId };
+function isLegacyBareGroupChatId(value) {
+  return /^\d+$/.test(value) && /^120\d{12,}$/.test(value);
+}
+
+/** Newer WhatsApp group IDs, e.g. 201128758160-1618772560@g.us */
+function isHyphenatedGroupChatId(value) {
+  return /^\d+-\d+$/.test(value);
+}
+
+function isGroupChatUserPart(value) {
+  return isLegacyBareGroupChatId(value) || isHyphenatedGroupChatId(value);
+}
+
+/**
+ * Resolve send-message recipient: @g.us → phone → @lid → invalid.
+ * Group IDs are checked before phone so long numeric group IDs are not
+ * resolved to individual contacts via getNumberId.
+ */
+function resolveSendMessageRecipient(input) {
+  if (input == null || String(input).trim() === '') {
+    return { type: 'invalid' };
+  }
+
+  const raw = String(input).trim();
+
+  if (raw.includes('@')) {
+    const [userPart, suffix] = raw.split('@');
+
+    if (suffix === 'lid') {
+      return /^\d+$/.test(userPart)
+        ? { type: 'lid', chatId: `${userPart}@lid` }
+        : { type: 'invalid' };
+    }
+    if (suffix === 'g.us') {
+      return isGroupChatUserPart(userPart)
+        ? { type: 'group', chatId: `${userPart}@g.us` }
+        : { type: 'invalid' };
+    }
+    if (suffix && !WHATSAPP_ID_SUFFIXES.has(suffix)) {
+      return { type: 'invalid' };
+    }
+  }
+
+  if (isGroupChatUserPart(raw)) {
+    return { type: 'group', chatId: `${raw}@g.us` };
+  }
+
+  try {
+    return { type: 'phone', value: parsePhoneNumber(raw) };
+  } catch {
+    // not a valid phone number
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return { type: 'lid', chatId: `${raw}@lid` };
+  }
+
+  return { type: 'invalid' };
+}
+
+/**
+ * Destination chat JID for a sent message. Prefer group/chat remote id over
+ * author/from fields, which may contain member phone numbers in group chats.
+ */
+function getSentMessageChatId(sentMessage, fallbackChatId) {
+  if (!sentMessage) {
+    return fallbackChatId;
+  }
+
+  const remote =
+    typeof sentMessage.id?.remote === 'object'
+      ? sentMessage.id.remote._serialized
+      : sentMessage.id?.remote;
+
+  if (typeof remote === 'string' && remote.includes('@')) {
+    return remote;
+  }
+
+  if (
+    sentMessage.fromMe &&
+    typeof sentMessage.to === 'string' &&
+    sentMessage.to.includes('@')
+  ) {
+    return sentMessage.to;
+  }
+
+  return fallbackChatId;
+}
+
+module.exports = {
+  parsePhoneNumber,
+  getChatId,
+  resolveWhatsAppChatId,
+  resolveSendMessageRecipient,
+  getSentMessageChatId,
+};

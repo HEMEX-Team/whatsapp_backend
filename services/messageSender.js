@@ -147,6 +147,7 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
       return {
         success: true,
         message: sentMessage,
+        chatId,
       };
     } catch (error) {
       lastError = error;

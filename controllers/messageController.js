@@ -1,5 +1,9 @@
 const { MessageMedia } = require("whatsapp-web.js");
-const { parsePhoneNumber } = require("../utils/phoneUtils");
+const {
+  parsePhoneNumber,
+  resolveSendMessageRecipient,
+  getSentMessageChatId,
+} = require("../utils/phoneUtils");
 const fs = require("fs");
 const {
   saveMessage: saveMessageService,
@@ -128,7 +132,23 @@ async function sendMessage(req, res, client) {
   }
 
   try {
-    const result = await sendMessageService(client, phoneNumber, message, file, false);
+    const recipient = resolveSendMessageRecipient(phoneNumber);
+
+    if (recipient.type === 'invalid') {
+      return res.status(400).json({ success: false, error: 'Failed' });
+    }
+
+    const result =
+      recipient.type === 'phone'
+        ? await sendMessageService(client, phoneNumber, message, file, false)
+        : await sendMessageToChat(
+            client,
+            recipient.chatId,
+            message,
+            file,
+            false,
+            recipient.chatId
+          );
 
     if (!result.success) {
       // Handle rate limit errors with appropriate status code
@@ -167,9 +187,16 @@ async function sendMessage(req, res, client) {
     //   waId: result.message?.id?.id || undefined,
     // });
 
+    const destinationChatId = getSentMessageChatId(
+      result.message,
+      result.chatId || recipient.chatId || result.phoneNumber
+    );
+
     return res.status(200).json({
       success: true,
       message: "Message sent successfully",
+      chatId: destinationChatId,
+      recipientType: recipient.type,
       rateLimitStats: getRateLimitStats()
     });
   } catch (error) {
