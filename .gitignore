@@ -136,7 +136,7 @@ dist
 .pnp.*
 
 
-
+nodemon.json
 .wwebjs_auth
 .wwebjs_cache
 wwebjs_cache

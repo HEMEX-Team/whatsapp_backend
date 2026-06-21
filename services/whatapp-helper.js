@@ -3,7 +3,7 @@ const { getChatId } = require('../utils/phoneUtils');
 
 
 // Save a message (incoming or outgoing) to the chat collection
-async function saveMessage({ contactNumber, direction, body, media, mimeType, timestamp, ack, message: whatsappMessage }) {
+async function saveMessage({ contactNumber, direction, body, media, mimeType, timestamp, ack, message: whatsappMessage, waClient }) {
   const message = { direction, body, media, mimeType, timestamp, ack };
   
   // Find or create chat
@@ -27,10 +27,9 @@ async function saveMessage({ contactNumber, direction, body, media, mimeType, ti
     
     // Assign default label ID 7 to new chat if chatId is available
     const chatId = getChatId(contactNumber)
-    if (chatId) {
-      const { client } = require('./whatsApp');
+    if (chatId && waClient) {
       try {
-        await client.addOrRemoveLabels([chatId], ['38']);
+        await waClient.addOrRemoveLabels([chatId], ['38']);
         console.log(`[saveMessage] Assigned default label ID 38 to new chat ${chatId}`);
       } catch (error) {
         console.error('[saveMessage] Error assigning default label:', error);
