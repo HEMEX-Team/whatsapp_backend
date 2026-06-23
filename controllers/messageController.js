@@ -1,10 +1,14 @@
 const { MessageMedia } = require("whatsapp-web.js");
-const { parsePhoneNumber } = require("../utils/phoneUtils");
+const {
+  parsePhoneNumber,
+  resolveSendMessageRecipient,
+  getSentMessageChatId,
+} = require("../utils/phoneUtils");
 const fs = require("fs");
 const {
   saveMessage: saveMessageService,
 } = require("../services/whatapp-helper");
-const { sendMessage: sendMessageService } = require('../services/messageSender');
+const { sendMessage: sendMessageService, sendMessageToChat } = require('../services/messageSender');
 const whatsappConfig = require('../config/whatsappConfig');
 const { getRateLimitStats } = require('../utils/rateLimiter');
 
@@ -130,7 +134,23 @@ async function sendMessage(req, res) {
   }
 
   try {
-    const result = await sendMessageService(client, phoneNumber, message, file, false);
+    const recipient = resolveSendMessageRecipient(phoneNumber);
+
+    if (recipient.type === 'invalid') {
+      return res.status(400).json({ success: false, error: 'Failed' });
+    }
+
+    const result =
+      recipient.type === 'phone'
+        ? await sendMessageService(client, phoneNumber, message, file, false)
+        : await sendMessageToChat(
+            client,
+            recipient.chatId,
+            message,
+            file,
+            false,
+            recipient.chatId
+          );
 
     if (!result.success) {
       // Handle rate limit errors with appropriate status code
@@ -169,9 +189,16 @@ async function sendMessage(req, res) {
     //   waId: result.message?.id?.id || undefined,
     // });
 
+    const destinationChatId = getSentMessageChatId(
+      result.message,
+      result.chatId || recipient.chatId || result.phoneNumber
+    );
+
     return res.status(200).json({
       success: true,
       message: "Message sent successfully",
+      chatId: destinationChatId,
+      recipientType: recipient.type,
       rateLimitStats: getRateLimitStats()
     });
   } catch (error) {
@@ -206,6 +233,7 @@ async function saveMessage(req, res) {
       mimeType,
       timestamp: messageTimestamp ? new Date(messageTimestamp) : new Date(),
       ack: typeof ack === "number" ? ack : undefined,
+      waClient: req.whatsappClient,
     });
     res.status(200).json({ success: true });
   } catch (err) {
@@ -223,7 +251,7 @@ async function saveMessage(req, res) {
  * @param {Object} [req.file] - Optional media file
  * @param {Object} res - Express response object
  */
-async function sendBulkToLabel(req, res) {
+async function sendBulkToLabel(req, res, client) {
     const { labelId, message } = req.body;
     const file = req.file;
 	
@@ -275,25 +303,24 @@ async function sendBulkToLabel(req, res) {
 
         for (const chat of chatsWithLabel) {
             try {
-                // Extract phone number from chat ID
-                const phoneNumber = chat.id.user || chat.id._serialized.split('@')[0];
-                
-                const result = await sendMessageService(client, phoneNumber, message, messageMedia, true);
-                
+                const chatId = chat.id._serialized;
+                const displayId = chat.id.user || chatId.split('@')[0];
+
+                const result = await sendMessageToChat(client, chatId, message, messageMedia, true, chatId);
+
                 if (result.success) {
                     successCount++;
                     results.push({
-                        chatId: chat.id._serialized,
-                        phoneNumber: result.phoneNumber,
-                        status: result.warning ? 'warning' : 'success',
-                        message: result.warning || 'Message sent successfully',
-                        warning: result.warning || undefined
+                        chatId,
+                        phoneNumber: displayId,
+                        status: 'success',
+                        message: 'Message sent successfully'
                     });
                 } else {
                     errorCount++;
                     results.push({
-                        chatId: chat.id._serialized,
-                        phoneNumber: phoneNumber,
+                        chatId,
+                        phoneNumber: displayId,
                         status: 'error',
                         message: result.error,
                         rateLimitInfo: result.rateLimitInfo

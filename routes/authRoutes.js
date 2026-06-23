@@ -5,6 +5,7 @@ const User = require('../models/User');
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+const authMiddleware = require('../middlewares/auth');
 
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
@@ -16,6 +17,16 @@ router.post('/login', async (req, res) => {
 
   const token = jwt.sign({ userId: user._id, username: user.username }, JWT_SECRET, { expiresIn: '2 day' });
   res.json({ status:"success", message:"logged in successfully!",token });
+});
+
+router.get('/me', authMiddleware, (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      userId: req.user.userId,
+      username: req.user.username,
+    },
+  });
 });
 
 module.exports = router;

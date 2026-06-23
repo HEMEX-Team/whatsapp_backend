@@ -1,9 +1,7 @@
-const Chat = require('../models/Chat');
-
 // Get all available labels
 async function getLabels(req, res) {
   try {
-    const client = req.client;
+    const client = req.whatsappClient;
     const labels = await client.getLabels();
     res.json({ labels });
   } catch (error) {
@@ -13,7 +11,7 @@ async function getLabels(req, res) {
 
 async function getLabelById(req, res) {
   try {
-    const client = req.client;
+    const client = req.whatsappClient;
     const { labelId } = req.params;
     if (!labelId) {
       return res.status(400).json({ message: 'Label ID is required' });
@@ -29,7 +27,7 @@ async function getLabelById(req, res) {
 // chatId format : 201088899963@c.us
 async function getChatLabels(req, res) {
   try {
-    const client = req.client;
+    const client = req.whatsappClient;
     const { chatId } = req.body;
     
     if (!chatId) {
@@ -40,8 +38,6 @@ async function getChatLabels(req, res) {
     }
 
     try {
-      // Client ready check is handled by middleware
-      
       const labels = await client.getChatLabels(chatId);
       res.json({ 
         success: true,
@@ -50,10 +46,24 @@ async function getChatLabels(req, res) {
     } catch (error) {
       console.error('Error in getChatLabels:', error);
       
-      // Note: Client reinitialization should be handled by client manager
-      // This is a connection error that may require client restart
+      if (error.message.includes('Execution context was destroyed') ||
+          error.message.includes('Navigation failed') ||
+          error.message.includes('Protocol error')) {
+        try {
+          await client.initialize();
+          const labels = await client.getChatLabels(chatId);
+          return res.json({ 
+            success: true,
+            labels,
+            recovered: true
+          });
+        } catch (retryError) {
+          console.error('Recovery attempt failed:', retryError);
+          throw new Error('Failed to recover from navigation error');
+        }
+      }
       
-      throw error; // Re-throw if not a navigation error
+      throw error;
     }
   } catch (error) {
     console.error('Error in getChatLabels:', error);
@@ -69,7 +79,7 @@ async function getChatLabels(req, res) {
 async function replaceChatLabels(req, res) {
 
   try {
-    const client = req.client;
+    const client = req.whatsappClient;
     const { chatIds = [], labelIds = [] } = req.body;
     
     if (!Array.isArray(chatIds) || chatIds.length === 0) {
@@ -79,36 +89,24 @@ async function replaceChatLabels(req, res) {
       });
     }
     
-    // Convert label IDs to strings for consistent comparison
     const newLabelIds = Array.isArray(labelIds) ? labelIds.map(String) : [];
     let successCount = 0;
     
-    // Process each chat to update its labels
     for (const chatId of chatIds) {
       try {
-        console.log(chatId)
-        // Get current labels from WhatsApp
         const existingLabels = await client.getChatLabels(chatId);
-        console.log("existingLabels",existingLabels)
         const existingLabelIds = existingLabels?.map(label => label.id) || [];
-        console.log("existingLabelIds",existingLabelIds)
-        // If newLabelIds is empty, remove all labels
         if (newLabelIds.length === 0) {
-          // Remove all existing labels
           if (existingLabelIds.length > 0) {
             await client.addOrRemoveLabels(existingLabelIds, [chatId]);
           }
         } else {
-          // Remove labels that are not in the new labels
           const labelsToRemove = existingLabelIds.filter(id => !newLabelIds.includes(id));
-          console.log("labelsToRemove",labelsToRemove)
           if (labelsToRemove.length > 0) {
             await client.addOrRemoveLabels(labelsToRemove, [chatId]);
           }
           
-          // Add new labels that don't exist
           const labelsToAdd = newLabelIds.filter(id => !existingLabelIds.includes(id));
-          console.log("labelsToAdd",labelsToAdd)
           if (labelsToAdd.length > 0) {
             await client.addOrRemoveLabels(labelsToAdd, [chatId]);
           }
@@ -118,7 +116,6 @@ async function replaceChatLabels(req, res) {
         
       } catch (error) {
         console.error(`Error updating labels for chat ${chatId}:`, error);
-        // Continue with other chats even if one fails
       }
     }
 

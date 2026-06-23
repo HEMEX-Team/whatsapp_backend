@@ -152,44 +152,11 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
         // Record successful send
         recordMessageSent(phoneNumber);
 
-        return {
-          success: true,
-          message: sentMessage,
-        };
-      } catch (err) {
-        sendError = err;
-        const errorMessage = err.message || err.toString();
-        
-        // Handle "markedUnread" and similar internal errors that might occur after message is sent
-        // These are often post-processing errors that don't affect message delivery
-        if ((errorMessage.includes('markedUnread') || 
-             errorMessage.includes('Cannot read properties of undefined')) &&
-            sentMessage && sentMessage.id) {
-          // Message was sent successfully, just post-processing failed
-          console.warn(`[${phoneNumber}] Warning: Post-processing error (message likely sent): ${errorMessage}`);
-          recordMessageSent(phoneNumber);
-          return {
-            success: true,
-            message: sentMessage,
-            warning: 'Message sent but encountered a post-processing warning'
-          };
-        }
-        
-        // If we have a sentMessage with an id, the message was likely sent despite the error
-        // This can happen with WhatsApp Web.js where the message is sent but internal state update fails
-        if (sentMessage && sentMessage.id && errorMessage.includes('markedUnread')) {
-          console.warn(`[${phoneNumber}] Post-processing error detected but message has ID - treating as success: ${errorMessage}`);
-          recordMessageSent(phoneNumber);
-          return {
-            success: true,
-            message: sentMessage,
-            warning: 'Message sent successfully (minor post-processing warning ignored)'
-          };
-        }
-        
-        // For other errors or if no message was returned, treat as failure
-        throw sendError;
-      }
+      return {
+        success: true,
+        message: sentMessage,
+        chatId,
+      };
     } catch (error) {
       lastError = error;
       const errorMessage = error.message || error.toString();
@@ -243,6 +210,91 @@ function createMessageHash(phoneNumber, messageContent) {
   return hash.digest('hex');
 }
 
+function prepareMessageContent(message, fileOrMedia) {
+  let messageMedia = null;
+  if (fileOrMedia) {
+    if (fileOrMedia instanceof MessageMedia) {
+      messageMedia = fileOrMedia;
+    } else if (fileOrMedia.path) {
+      messageMedia = MessageMedia.fromFilePath(fileOrMedia.path);
+    }
+  }
+
+  return {
+    content: messageMedia || message,
+    options: messageMedia && message ? { caption: message } : {},
+  };
+}
+
+async function applyPostSendDelay(isBulk, success) {
+  if (!success) return;
+
+  const delay = getDelayForTimeOfDay(isBulk);
+  await new Promise(resolve => setTimeout(resolve, delay));
+}
+
+/**
+ * Send a message to an existing chat by its WhatsApp ID (@c.us, @lid, @g.us, etc.)
+ */
+async function sendMessageToChat(client, chatId, message, fileOrMedia = null, isBulk = false, rateLimitKey = null) {
+  try {
+    const { content, options } = prepareMessageContent(message, fileOrMedia);
+    const result = await sendMessageWithRetry(
+      client,
+      chatId,
+      content,
+      options,
+      rateLimitKey ?? chatId
+    );
+
+    await applyPostSendDelay(isBulk, result.success);
+
+    return {
+      ...result,
+      chatId,
+    };
+  } catch (error) {
+    console.error('Error in sendMessageToChat:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send message',
+      chatId,
+    };
+  }
+}
+
+/**
+ * Resolve a phone number to the correct WhatsApp chat ID (@c.us or @lid).
+ */
+async function resolveChatId(client, phoneNumber) {
+  let contactNumber;
+  try {
+    contactNumber = parsePhoneNumber(phoneNumber);
+  } catch {
+    return {
+      success: false,
+      error: 'Invalid phone number format',
+    };
+  }
+
+  const digits = contactNumber.replace('+', '');
+  const wid = await client.getNumberId(digits);
+
+  if (!wid) {
+    return {
+      success: false,
+      error: 'Number is not registered on WhatsApp',
+      phoneNumber: contactNumber,
+    };
+  }
+
+  return {
+    success: true,
+    chatId: wid._serialized,
+    phoneNumber: contactNumber,
+  };
+}
+
 /**
  * Send a message with all spam prevention measures
  * @param {Object} client - WhatsApp client instance
@@ -254,66 +306,23 @@ function createMessageHash(phoneNumber, messageContent) {
  */
 async function sendMessage(client, phoneNumber, message, fileOrMedia = null, isBulk = false) {
   try {
-    // Parse phone number
-    let contactNumber;
-    try {
-      contactNumber = parsePhoneNumber(phoneNumber);
-    } catch (err) {
-      return {
-        success: false,
-        error: 'Invalid phone number format',
-      };
+    const resolved = await resolveChatId(client, phoneNumber);
+    if (!resolved.success) {
+      return resolved;
     }
 
-    const chatId = contactNumber.replace('+', '') + '@c.us';
-
-    // Ensure chat exists before sending (prevents markedUnread errors)
-    // This helps initialize the chat object properly
-    try {
-      await client.getChatById(chatId);
-    } catch (chatError) {
-      // If chat doesn't exist, WhatsApp Web.js will create it automatically when sending
-      // This is fine, we can proceed with sending
-    }
-
-    // Prepare message content
-    // If fileOrMedia is already a MessageMedia instance, use it directly
-    // Otherwise, if it's a file object, create MessageMedia from it
-    let messageMedia = null;
-    if (fileOrMedia) {
-      if (fileOrMedia instanceof MessageMedia) {
-        messageMedia = fileOrMedia;
-      } else if (fileOrMedia.path) {
-        messageMedia = MessageMedia.fromFilePath(fileOrMedia.path);
-      }
-    }
-
-    const content = messageMedia || message;
-    const options = messageMedia && message ? { caption: message } : {};
-
-    // Send with retry logic
-    const result = await sendMessageWithRetry(
+    const result = await sendMessageToChat(
       client,
-      chatId,
-      content,
-      options,
-      contactNumber
+      resolved.chatId,
+      message,
+      fileOrMedia,
+      isBulk,
+      resolved.phoneNumber
     );
-
-    // Add delay after successful send (for bulk messages)
-    if (result.success && isBulk) {
-      const delay = getDelayForTimeOfDay(true);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    } else if (result.success && !isBulk) {
-      // Smaller delay for single messages
-      const delay = getDelayForTimeOfDay(false);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
 
     return {
       ...result,
-      phoneNumber: contactNumber,
-      chatId,
+      phoneNumber: resolved.phoneNumber,
     };
   } catch (error) {
     console.error('Error in sendMessage:', error);
@@ -326,6 +335,8 @@ async function sendMessage(client, phoneNumber, message, fileOrMedia = null, isB
 
 module.exports = {
   sendMessage,
+  sendMessageToChat,
+  resolveChatId,
   sendMessageWithRetry,
   isBusinessHours,
   isLateNight,
