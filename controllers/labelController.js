@@ -1,3 +1,4 @@
+const { client, isReady } = require('../services/whatsApp');
 const Chat = require('../models/Chat');
 
 // Get all available labels
@@ -40,7 +41,10 @@ async function getChatLabels(req, res) {
     }
 
     try {
-      // Client ready check is handled by middleware
+      // Check if client is ready
+      if (!isReady()) {
+        throw new Error('WhatsApp client is not ready or disconnected');
+      }
       
       const labels = await client.getChatLabels(chatId);
       res.json({ 

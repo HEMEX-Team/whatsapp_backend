@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const { initializeClient, destroyClient, getConnectionStatus } = require("./services/whatsApp");
 const { initializeDBConnection } = require("./config/db");
 const { getAllClients, migrateExistingClients } = require("./services/clientManager");
 const authMiddleware = require("./middlewares/auth");
@@ -37,7 +38,6 @@ process.on('uncaughtException', (error) => {
 const app = express();
 app.use('/uploads', express.static(require('path').join(__dirname, 'uploads')));
 
-// ✅ Register CORS middleware FIRST
 app.use(
   cors({
     origin: "*",
@@ -46,45 +46,36 @@ app.use(
   })
 );
 
-// ✅ Then use body parsers
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ limit: "15mb", extended: true }));
 
-// ✅ Then register authentication routes
-app.use("/auth",authRoutes);
-
+app.use("/auth", authRoutes);
 app.use("/exposed", exposedMessagesRoute);
 
-// ✅ Then register authentication middleware
+app.get("/whatsapp/status", async (req, res) => {
+  try {
+    const status = await getConnectionStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ connected: false, error: error.message });
+  }
+});
+
 // app.use(authMiddleware);
 
-// ✅ Then register all the routes
 app.use("/messages", messageRoutes);
 app.use("/chats", chatRoutes);
 app.use("/labels", labelRoutes);
 app.use("/clients", clientRoutes);
 
-// ✅ Initialize services AFTER server config
 (async () => {
   try {
     await initializeDBConnection();
     console.log("DB initialized");
-    await migrateExistingClients();
-    
-    // Optionally auto-initialize clients from database
-    // Clients are initialized on-demand when accessed via API
-    // Uncomment the following code if you want to auto-initialize all clients on startup
-    /*
-    try {
-      const clients = await getAllClients();
-      console.log(`Found ${clients.length} registered clients in database`);
-      // Clients will be initialized when first accessed via API
-    } catch (error) {
-      console.warn('Warning: Could not fetch clients from database:', error.message);
-    }
-    */
-    
-    console.log('Client manager ready. Clients will be initialized on-demand.');
+
+    console.log('Initializing WhatsApp client...');
+    await initializeClient();
+    console.log('WhatsApp client initialized');
   } catch (error) {
     console.error('Error initializing services:', error);
     process.exit(1);
@@ -92,6 +83,16 @@ app.use("/clients", clientRoutes);
 })();
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+async function shutdown(signal) {
+  console.log(`${signal} received, shutting down...`);
+  server.close();
+  await destroyClient();
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
