@@ -1,23 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const {
-  registerClient,
-  provisionClientHandler,
   listClients,
-  getClientStatusInfo,
+  createClient,
+  provision,
+  getClientStatus,
+  getQr,
   updateClient,
-  getClientQR,
-  getClientQRImage,
-  deleteClient
+  deleteClient,
 } = require('../controllers/clientController');
 
-router.post('/provision', provisionClientHandler);
-router.post('/', registerClient);
 router.get('/', listClients);
-router.get('/:deviceId/qr/image', getClientQRImage);
-router.get('/:deviceId/qr', getClientQR);
+router.post('/', createClient);
+router.post('/provision', provision);
+router.get('/:deviceId/qr', getQr);
+router.get('/:deviceId', getClientStatus);
 router.patch('/:deviceId', updateClient);
-router.get('/:deviceId', getClientStatusInfo);
 router.delete('/:deviceId', deleteClient);
 
 module.exports = router;

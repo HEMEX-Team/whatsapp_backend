@@ -6,11 +6,16 @@ const { saveMessage, sendMessage, sendBulkMessage, sendBulkToLabel } = require('
 
 router.post('/save-message', saveMessage);
 
-router.post('/send-message', upload.single('file'), clientSelector, sendMessage);
+router.post('/send-message', upload.single('file'), (req, res) =>
+  sendMessage(req, res, req.whatsappClient)
+);
 
-router.post('/send-bulk-message', upload.single('file'), clientSelector, sendBulkMessage);
+router.post('/send-bulk-message', upload.single('file'), (req, res) =>
+  sendBulkMessage(req, res, req.whatsappClient)
+);
 
-// Send message to all chats with a specific label
-router.post('/send-bulk-to-label', upload.single('file'), clientSelector, sendBulkToLabel);
+router.post('/send-bulk-to-label', upload.single('file'), (req, res) =>
+  sendBulkToLabel(req, res, req.whatsappClient)
+);
 
 module.exports = router;

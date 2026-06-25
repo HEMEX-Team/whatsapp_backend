@@ -1,6 +1,5 @@
 const Chat = require("../models/Chat");
 const { parsePhoneNumber, getChatId, resolveWhatsAppChatId } = require("../utils/phoneUtils");
-const { client, isReady } = require("../services/whatsApp");
 const {parseDDMMYYYY} = require('../utils/dateParser');
 const path = require('path');
 const fs = require('fs');
@@ -10,7 +9,7 @@ const { escapeCsvField } = require("../utils/csvInput");
 // Ex. { chatId: "120363423130067554@g.us" } or { contactNumber: "201061261991" }
 async function getChatMessages(req, res) {
   try {
-    const client = req.client;
+    const client = req.whatsappClient;
     const { limit = 10 } = req.query;
     const { chatId, contactNumber } = req.body;
     const idInput = chatId || contactNumber;
@@ -19,16 +18,6 @@ async function getChatMessages(req, res) {
       return res.status(400).json({
         success: false,
         message: "chatId or contactNumber is required",
-      });
-    }
-
-    // Wait for client to be ready
-    if (!isReady()) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isReady: false,
       });
     }
 
@@ -51,17 +40,18 @@ async function getChatMessages(req, res) {
         // fromMe: false, // Set to true to include only your messages, false for all
       });
 
-      // Process messages to include only needed fields
-      const processedMessages = messages.map((msg) => ({
-        id: msg.id.id,
-        body: msg.body,
-        fromMe: msg.fromMe,
-        timestamp: msg.timestamp,
-        hasMedia: msg.hasMedia,
-        hasQuotedMsg: msg.hasQuotedMsg,
-        type: msg.type,
-        // Add more fields as needed
-      }));
+      // Process messages to include only needed fields (oldest → newest)
+      const processedMessages = messages
+        .map((msg) => ({
+          id: msg.id.id,
+          body: msg.body,
+          fromMe: msg.fromMe,
+          timestamp: msg.timestamp,
+          hasMedia: msg.hasMedia,
+          hasQuotedMsg: msg.hasQuotedMsg,
+          type: msg.type,
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
 
       res.json({
         success: true,
@@ -84,7 +74,7 @@ async function getChatMessages(req, res) {
 // Get chats by labels using WhatsApp API
 async function getChatsByLabels(req, res) {
   try {
-    const client = req.client;
+    const client = req.whatsappClient;
     let { page, limit, labels, search } = req.query;
 
     // Convert labels to array if needed
@@ -93,23 +83,6 @@ async function getChatsByLabels(req, res) {
       : typeof labels === "string"
       ? labels.split(",").filter(Boolean)
       : [];
-
-    if (!client) {
-      return res.status(500).json({
-        success: false,
-        message: "WhatsApp client not initialized",
-      });
-    }
-
-    // Wait for client to be ready
-    if (!isReady()) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isReady: false,
-      });
-    }
 
     try {
       let chats = [];
@@ -261,14 +234,7 @@ async function getChatsByLabels(req, res) {
  */
 async function getUnreadChats(req, res) {
   try {
-    // Wait for client to be ready
-    if (!isReady()) {
-      return res.status(503).json({
-        success: false,
-        message: "WhatsApp client is not ready yet. Please wait for the client to initialize.",
-        isReady: false,
-      });
-    }
+    const client = req.whatsappClient;
 
     // Get all chats
     const allChats = await client.getChats();
@@ -333,7 +299,7 @@ async function getUnreadChats(req, res) {
 
 async function getChatsReport(req, res) {
   try{
-    const client = req.client;
+    const client = req.whatsappClient;
     const { start_date, end_date } = req.body;
     
     // Validate presence of both dates
@@ -452,7 +418,7 @@ async function getChatsReport(req, res) {
 
 async function getChatsReportExposed(req, res) {
   try{
-    const client = req.client;
+    const client = req.whatsappClient;
     const { start_date, end_date } = req.query;
     
     // Validate presence of both dates

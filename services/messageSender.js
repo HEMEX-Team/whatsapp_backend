@@ -152,48 +152,6 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
         // Record successful send
         recordMessageSent(phoneNumber);
 
-        return {
-          success: true,
-          message: sentMessage,
-        };
-      } catch (err) {
-        sendError = err;
-        const errorMessage = err.message || err.toString();
-        
-        // Handle "markedUnread" and similar internal errors that might occur after message is sent
-        // These are often post-processing errors that don't affect message delivery
-        if ((errorMessage.includes('markedUnread') || 
-             errorMessage.includes('Cannot read properties of undefined')) &&
-            sentMessage && sentMessage.id) {
-          // Message was sent successfully, just post-processing failed
-          console.warn(`[${phoneNumber}] Warning: Post-processing error (message likely sent): ${errorMessage}`);
-          recordMessageSent(phoneNumber);
-          return {
-            success: true,
-            message: sentMessage,
-            warning: 'Message sent but encountered a post-processing warning'
-          };
-        }
-        
-        // If we have a sentMessage with an id, the message was likely sent despite the error
-        // This can happen with WhatsApp Web.js where the message is sent but internal state update fails
-        if (sentMessage && sentMessage.id && errorMessage.includes('markedUnread')) {
-          console.warn(`[${phoneNumber}] Post-processing error detected but message has ID - treating as success: ${errorMessage}`);
-          recordMessageSent(phoneNumber);
-          return {
-            success: true,
-            message: sentMessage,
-            warning: 'Message sent successfully (minor post-processing warning ignored)'
-          };
-        }
-        
-        // For other errors or if no message was returned, treat as failure
-        throw sendError;
-      }
-
-      // Record successful send
-      recordMessageSent(phoneNumber);
-
       return {
         success: true,
         message: sentMessage,

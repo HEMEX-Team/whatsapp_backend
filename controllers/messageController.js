@@ -8,7 +8,6 @@ const fs = require("fs");
 const {
   saveMessage: saveMessageService,
 } = require("../services/whatapp-helper");
-const { client } = require('../services/whatsApp');
 const { sendMessage: sendMessageService, sendMessageToChat } = require('../services/messageSender');
 const whatsappConfig = require('../config/whatsappConfig');
 const { getRateLimitStats } = require('../utils/rateLimiter');
@@ -234,6 +233,7 @@ async function saveMessage(req, res) {
       mimeType,
       timestamp: messageTimestamp ? new Date(messageTimestamp) : new Date(),
       ack: typeof ack === "number" ? ack : undefined,
+      waClient: req.whatsappClient,
     });
     res.status(200).json({ success: true });
   } catch (err) {
@@ -251,7 +251,7 @@ async function saveMessage(req, res) {
  * @param {Object} [req.file] - Optional media file
  * @param {Object} res - Express response object
  */
-async function sendBulkToLabel(req, res) {
+async function sendBulkToLabel(req, res, client) {
     const { labelId, message } = req.body;
     const file = req.file;
 	
