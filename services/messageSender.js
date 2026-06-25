@@ -83,6 +83,14 @@ function isRateLimitError(error) {
 }
 
 /**
+ * whatsapp-web.js sometimes throws after the message was already delivered.
+ */
+function isMarkedUnreadError(error) {
+  const errorMessage = (error?.message || String(error || '')).toLowerCase();
+  return errorMessage.includes('markedunread');
+}
+
+/**
  * Calculate exponential backoff delay
  * @param {number} retryCount - Current retry attempt (0-indexed)
  * @returns {number} Delay in milliseconds
@@ -122,18 +130,15 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
   }
 
   let lastError = null;
-  
-  // Retry with exponential backoff
+
   for (let retryCount = 0; retryCount <= whatsappConfig.backoff.maxRetries; retryCount++) {
     try {
-      // Wait before retry (except first attempt)
       if (retryCount > 0) {
         const backoffDelay = getExponentialBackoffDelay(retryCount - 1);
         console.log(`Retrying after ${backoffDelay / 1000}s (attempt ${retryCount + 1}/${whatsappConfig.backoff.maxRetries + 1})...`);
         await new Promise(resolve => setTimeout(resolve, backoffDelay));
       }
 
-      // Send message
       let sentMessage;
       if (content instanceof MessageMedia) {
         sentMessage = await client.sendMessage(chatId, content, options);
@@ -141,7 +146,10 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
         sentMessage = await client.sendMessage(chatId, content);
       }
 
-      // Record successful send
+      if (!sentMessage) {
+        throw new Error('Message sent but no message object returned');
+      }
+
       recordMessageSent(phoneNumber);
 
       return {
@@ -151,33 +159,43 @@ async function sendMessageWithRetry(client, chatId, content, options = {}, phone
       };
     } catch (error) {
       lastError = error;
-      console.error(`Error sending message (attempt ${retryCount + 1}):`, error.message);
+      const errorMessage = error.message || error.toString();
 
-      // If it's a rate limit error, use exponential backoff
+      if (isMarkedUnreadError(error)) {
+        recordMessageSent(phoneNumber);
+        return {
+          success: true,
+          chatId,
+          warning: 'Message sent; WhatsApp Web internal sync error (markedUnread)',
+        };
+      }
+
+      console.error(`[${phoneNumber || chatId}] Error sending message (attempt ${retryCount + 1}):`, errorMessage);
+
+      if (error.stack && !isMarkedUnreadError(error)) {
+        console.error(`Error stack:`, error.stack);
+      }
+
       if (isRateLimitError(error)) {
         if (retryCount < whatsappConfig.backoff.maxRetries) {
-          // Will retry with backoff
           continue;
-        } else {
-          // Max retries reached
-          return {
-            success: false,
-            error: 'Rate limit error: Maximum retries exceeded. Please wait before sending more messages.',
-            originalError: error.message,
-          };
         }
-      } else {
-        // Non-rate-limit error, don't retry
+
         return {
           success: false,
-          error: error.message || 'Failed to send message',
+          error: 'Rate limit error: Maximum retries exceeded. Please wait before sending more messages.',
           originalError: error.message,
         };
       }
+
+      return {
+        success: false,
+        error: error.message || 'Failed to send message',
+        originalError: error.message,
+      };
     }
   }
 
-  // Should not reach here, but just in case
   return {
     success: false,
     error: lastError?.message || 'Failed to send message after retries',
